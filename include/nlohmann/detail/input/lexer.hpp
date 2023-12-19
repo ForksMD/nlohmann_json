@@ -251,13 +251,10 @@ class lexer : public lexer_base<BasicJsonType>
     @note In case of errors, variable error_message contains a textual
           description.
     */
-    token_type scan_string()
+    token_type scan_string(bool is_raw_string)
     {
         // reset token_buffer (ignore opening quote)
         reset();
-
-        // we entered the function by reading an open quote
-        JSON_ASSERT(current == '\"');
 
         while (true)
         {
@@ -273,9 +270,32 @@ class lexer : public lexer_base<BasicJsonType>
 
                 // closing quote
                 case '\"':
-                {
-                    return token_type::value_string;
-                }
+                    if (!is_raw_string) {
+                        return token_type::value_string;
+                    }
+                    else
+                    {
+                        add(current);
+                        break;
+                    }
+
+                // closing apostrophe
+                case '\'':
+                    if (is_raw_string) {
+                        const size_t token_count = token_buffer.size();
+                        if (token_count >= 2 && token_buffer[token_count - 1] == '\'' && token_buffer[token_count - 2] == '\'')
+                        {
+                            token_buffer.resize(token_count - 2);
+                            return token_type::value_string;
+                        }
+                        add(current);
+                        break;
+                    }
+                    else
+                    {
+                        add(current);
+                        break;
+                    }
 
                 // escapes
                 case '\\':
@@ -612,14 +632,13 @@ class lexer : public lexer_base<BasicJsonType>
                     return token_type::parse_error;
                 }
 
-                // U+0020..U+007F (except U+0022 (quote) and U+005C (backspace))
+                // U+0020..U+007F (except U+0022 (quote), U+0027 (apostrophe) and U+005C (backspace))
                 case 0x20:
                 case 0x21:
                 case 0x23:
                 case 0x24:
                 case 0x25:
                 case 0x26:
-                case 0x27:
                 case 0x28:
                 case 0x29:
                 case 0x2A:
@@ -1565,7 +1584,20 @@ scan_number_done:
 
             // string
             case '\"':
-                return scan_string();
+                return scan_string(false);
+
+            case '\'':
+                if (get() != '\'')
+                {
+                    error_message = "incomplete raw string begin";
+                    return token_type::parse_error;
+                }
+                if (get() != '\'')
+                {
+                    error_message = "incomplete raw string begin";
+                    return token_type::parse_error;
+                }
+                return scan_string(true);
 
             // number
             case '-':
